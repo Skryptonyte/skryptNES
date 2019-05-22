@@ -3,16 +3,18 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
+#include <ppu.h>
 
 void signalHandler(int sigint){
 	puts("\nERROR: SEGFAULT\n");
 	puts("REGISTER DUMP");
 	printf("OPCODE: %x, A: %x, X: %x, Y: %x, P: %x\n",opcode, A, X, Y, P);
 	printf("Program Counter: %x, Stack Pointer: %x\n", PC, SP);
-	printf("DEBUG INFO: Variables - address: %x, opcode: %x, operand: %x, cycles: %d\n\n",address, opcode, operand,cycles); 
+	printf("DEBUG INFO: Variables - address: %x, opcode: %x, operand: %x, cycles: %d\n\n",address, opcode, operand,cycles_count); 
 	
 	printf("Interrupt Vector: %x %x\n\n", mem[0xFFFE], mem[0xFFFF]);
-	
+	puts((char*)mem+0x6004);
+	printf("Status of instr: %x\n", mem[0x6000]);	
 	puts("ZERO PAGE DUMP");
 	    for (int i = 0x0; i <= 0xFF; i += 0x10){
                 printf("0x%02x - 0x%02x: ",i, i + 0xF);
@@ -40,25 +42,26 @@ signal(SIGINT, signalHandler);
 puts("START");
 loadINESFile(argv[1]);
 
-void (*opcodes[4][8])() = {{NULL, BIT, JMP, NULL, STY, LDY, CPY, CPX},
+void (*opcodes[4][8])() = {{NULL, BIT, JMP, JMPindirect, STY, LDY, CPY, CPX},
 			   {ORA, AND, EOR, ADC, STA, LDA, CMP, SBC},
 			   {ASL, ROL, LSR, ROR, STX, LDX, DEC, INC},
 			   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL}};
 
 void (*singleByte0[16])() = {BRK, BRANCH, JSR, BRANCH, RTI, BRANCH, RTS, BRANCH, NULL, BRANCH, NULL, BRANCH, NULL, BRANCH, NULL, BRANCH};
 void (*singleByte8[16])() = {PHP, CLC, PLP, SEC, PHA, CLI, PLA, SEI, DEY, TYA, TAY, CLV, INY, CLD, INX, SED};
-void (*singleByteA[7])() = {TXA, TXS, TAX, TSX, DEX, NULL, NOP};
-while (1){
-cycles = 400;
-while (cycles >= 0){
+void (*singleByteA[8])() = {TXA, TXS, TAX, TSX, DEX, NOP, NOP,NOP};
 
+ppu_init();
+
+while (1){
+while (cycles_count <= 400){
 loadOpcode();
 if (argc == 3){
 	if (PC - 1 == strtol(argv[2],NULL, 16)){
 	signalHandler(0);
 }
 }
-printf("OPCODE: %2x, A: %2x, X: %2x, Y: %2x, P: %2x            PC = %4x, SP = %2x | ",opcode, A, X, Y, P,PC - 1, SP);
+printf("OPCODE: %2x, A: %2x, X: %2x, Y: %2x, P: %2x            PC = %4x, SP = %2x CYC: %d| ",opcode, A, X, Y, P,PC - 1, SP,cycles_count);
 int test = (opcode & 0xF0) >> 4;
 test -= 8;
 if ((opcode & 0x0F) == 0x0 && singleByte0[(opcode & 0xF0)>> 4]){
@@ -74,10 +77,13 @@ else if (opcodes[cc][aaa] != NULL && addressingMode[cc][bbb] != NULL){
         opcodes[cc][aaa]();
 }
 else{
-	printf(" Unrecognized OPCODE: %x\n",opcode);
+	addressingMode[cc][bbb]();
+	printf(" Unrecognized OPCODE, NOP assumed",opcode);
 }
 puts("");
+modify = 0x0;
 }
+cycles_count = 0;
 sleep(1);
 }
 }

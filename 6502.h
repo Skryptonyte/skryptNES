@@ -31,34 +31,33 @@ uint8_t* target;
 uint8_t acc;
 uint8_t modify = 0x0;
 
-int32_t cycles = 0;
-uint64_t cycles_total = 0;
+int32_t cycles_count = 0;
 /* Atomic Cycles */ 
-void loadOpcode(){
+inline static void loadOpcode(){
 	opcode = mem[PC];
 	PC++;
 	aaa = (opcode & 0b11100000) >> 5;
 	bbb = (opcode & 0b00011100) >> 2;
 	cc =  (opcode & 0b00000011);
-	cycles--;
-	cycles_total++;
+	cycles_count++;
 }
-void loadOperand(){
+inline static void loadOperand(){
 	//printf("LOAD OPERAND | ");
 	operand = mem[PC];
 	PC++;
+	cycles_count++;
 }
 
-void writeAddress(){
+inline static void writeAddress(){
 	operand = mem[address];
 	address = (hi << 8) | lo;
 	//printf("READ ADDRESS | Address: %x\n",address);
 }
 
 uint8_t getFlag(uint8_t FLAG){return (P >> FLAG ) & 1;}
-void setFlag(uint8_t FLAG){P |= (1 << FLAG);}
-void clearFlag(uint8_t FLAG){P &= ~(1 << FLAG);}
-void setNZ(){
+inline static void setFlag(uint8_t FLAG){P |= (1 << FLAG);}
+inline static void clearFlag(uint8_t FLAG){P &= ~(1 << FLAG);}
+inline static void setNZ(){
 	if (operand == 0x0){
 		setFlag(Z);
 	}else {clearFlag(Z);};
@@ -70,24 +69,22 @@ void setNZ(){
 /* Addressing modes */
 void immediateAddress(){                    // 1 cycle
 	loadOperand();			    // Cycle 1: Load next byte
-	cycles -= 1;
-	cycles_total++;
 	printf(" Immediate Addressing |");
 }
 
 void accumulatorMode(){
-	cycles--;
 	printf(" Accumulator Mode");
 	operand = A; target = &A;
-	acc = 1;
+	cycles_count++;
 }
 void zeroPageAddressRW(){              
 	printf(" Zero Page Address |");     // 2 cycles
 	loadOperand();                      // Cycle 1: Load next byte
 	printf(" Operand: %x", operand);
 	address = operand & 0xFF;                 // Cycle 2: Fetch zero Address
-	cycles -= 2;
+	cycles_count++;
 	operand = mem[address]; target = mem+address;
+	if (modify){cycles_count++;}
 }
 void zeroPageAddressY();
 void zeroPageAddressX(){                    // 3 cycles
@@ -100,9 +97,9 @@ void zeroPageAddressX(){                    // 3 cycles
 	                		    // Cycle 2: Fetch Zero Address
 	address += X;			    // Cycle 3: Get Address, add Index register
 	address &= 0x00FF;		    // Cycle 4: Get Effective Address
-	cycles -= 4;
-	cycles_total += 4;
+	cycles_count += 2;
 	operand = mem[address]; target = mem+address;
+	if (modify){cycles_count++;}
 }
 
 void zeroPageAddressY(){               
@@ -111,9 +108,9 @@ void zeroPageAddressY(){
                                             // Cycle 2: Fetch Zero Address
         address += Y;                       // Cycle 3: Get Address, add Index register
         address &= 0x00FF;                  // Cycle 4: Get Effective Address
-	cycles -= 4;
-	cycles_total += 4;
+	cycles_count += 2;
 	operand = mem[address]; target = mem+address;
+	if (modify){cycles_count++;}
 }
 
 void absoluteAddressRW(){                   // 3 cycles
@@ -121,9 +118,9 @@ void absoluteAddressRW(){                   // 3 cycles
 	loadOperand();lo = operand;         // Cycle 1: Fetch high byte of PC
 	loadOperand();hi = operand;         // Cycle 2: Fetch low byte of PC
 	writeAddress();                     // Cycle 3: Fetch Address
-	cycles -= 3;
-	cycles_total += 3;
 	operand = mem[address]; target = mem+address;
+	cycles_count++;
+	if (modify){cycles_count++;}
 }
 void absoluteAddressY();
 void absoluteAddressX(){
@@ -136,11 +133,11 @@ void absoluteAddressX(){
 	loadOperand();lo = operand;         											     // Cycle 1: Fetch low byte of PC
         loadOperand();hi = operand;												     // Cycle 2: Fetch high byte of PC
 	address = hi << 8; // ; puts("FETCH ADDRESS");							     	     // Cycle 3: Write high byte
-	cycles -= 3;
-	cycles_total += 3;
+	cycles_count++;
 	if ( (uint16_t) (lo + X) <= 0xFF){address = hi << 8 |lo;}              
-	else { address = ((hi + 0x1) << 8) | ((lo + X) & 0xFF); puts("RECALCULATE ADDRESS"); cycles -= 1; cycles_total += 1;}				     // Cycle 4*: Will happen if page boundary is exceeded
+	else { address = ((hi + 0x1) << 8) | ((lo + X) & 0xFF); puts("RECALCULATE ADDRESS"); cycles_count++;}				     // Cycle 4*: Will happen if page boundary is exceeded
 	operand = mem[address]; target = mem+address;
+	if (modify){cycles_count++;}
 }
 
 void absoluteAddressY(){
@@ -148,11 +145,13 @@ void absoluteAddressY(){
         loadOperand();lo = operand;                                                             // Cycle 1: Fetch low byte of PC
         loadOperand();hi = operand;                                                             // Cycle 2: Fetch high byte of PC
         address = hi << 8; // puts("FETCH ADDRESS");;	
-	cycles -= 3; cycles_total += 3;						// Cycle 3: Write high byte
+	cycles_count++;						// Cycle 3: Write high byte
 	if ( (uint16_t) (lo + Y) <= 0xFF){  address = hi << 8 | lo;}               
-        else { address = ((hi + 0x1) << 8) | ((lo + Y) & 0xFF) ; puts("RECALCULATE ADDRESS"); cycles -= 1; cycles_total += 1;}        
+        else { address = ((hi + 0x1) << 8) | ((lo + Y) & 0xFF) ; puts("RECALCULATE ADDRESS"); cycles_count++;}        
 	operand = mem[address]; target = mem+address;                       // Cycle 4*: Will happen if page boundary is exceeded
+	if (modify){cycles_count++;}
 }
+
 
 void indexedIndirect(){
 	printf(" Indexed Indirect"); 
@@ -161,8 +160,9 @@ void indexedIndirect(){
 	lo = mem[address];
 	hi = mem[address+1];
 	address = (hi << 8) | lo;
-	cycles -= 5;
+	cycles_count += 4;
 	operand = mem[address]; target = mem+address;
+	if (modify){cycles_count++;}
 }
 
 void indirectIndexed(){
@@ -170,10 +170,11 @@ void indirectIndexed(){
 	loadOperand(); address = operand & 0xFF;
 	lo = mem[address];
 	hi = mem[address+1];
-	if ( lo + Y > 0xFF ) { cycles -= 1; }
+	if ( lo + Y > 0xFF ) { cycles_count -= 1; }
 	address = (hi << 8) | lo;
 	operand = mem[address]; target = mem+address;
-	cycles -= 3;
+	cycles_count += 2;
+	if (modify){cycles_count++;}
 }
 
 void(* addressingMode[3][8])() = {{immediateAddress, zeroPageAddressRW, NULL, absoluteAddressRW, NULL, zeroPageAddressX, NULL, absoluteAddressX},
@@ -190,7 +191,7 @@ mem[SP+0x100] = P; SP--;
 
 PC = mem[0xFFFE]; puts("Write HI Address");
 PC = (mem[0xFFFF] << 8) | PC; puts("Write LO Address");
-cycles -= 6;
+cycles_count += 5;
 }
 
 void RTS(){
@@ -212,7 +213,7 @@ lo = mem[0x100+SP]; SP++;
 hi = mem[0x100+SP];
 address = hi << 8 | lo;
 PC = address;
-cycles -= 5;
+cycles_count += 4;
 }
 
 void BRANCH(){					// 3 + 1* + 1! cycles
@@ -222,21 +223,34 @@ void BRANCH(){					// 3 + 1* + 1! cycles
 	loadOperand();				// Cycle 1: Load Operand
 	int8_t offset = operand;
 	uint8_t flag = 0;
+	cycles_count++;
 	if (xx == 0){ flag = N;}
 	else if (xx == 1){ flag = V;}
 	else if (xx == 2){ flag = C;}
 	else if (xx == 3){ flag = Z;}
 	if (getFlag(flag) == y){
+		cycles_count++;
 		PC += operand;	
 	}
 }
 
 void JMP(){
-	addressingMode[cc][bbb](); 
-	PC = (uint16_t ) address;
+	loadOperand(); lo = operand;
+	loadOperand(); hi = operand;  
+	PC = hi << 8 | lo;
 	printf(" PC: %d\n",PC);
 }
 
+void JMPindirect(){
+	loadOperand(); lo = operand;
+	loadOperand(); hi = operand;
+	address = hi << 8 | lo;
+	uint8_t addr2 = hi << 8 | ((lo + 1) & 0xFF);
+	lo = mem[address];
+	hi = mem[addr2];
+	PC = hi << 8 | lo;
+	cycles_count += 2;
+}
 void JSR(){
 	printf(" JSR");
 	loadOperand(); lo = operand;
@@ -246,16 +260,16 @@ void JSR(){
 	mem[0x100+SP] = PC & 0x00FF; SP--;
 	
 	PC = (hi << 8) | (lo);
-	cycles -= 5;
+	cycles_count += 4;
 }
 /* Flags */
-void CLD(){clearFlag(D); cycles--;cycles_total += 1; printf(" CLEAR DECIMAL");}
-void SED(){setFlag(D); cycles--;cycles_total += 1; printf(" SET DECIMAL (non-functional)");}
-void CLC(){clearFlag(C); cycles--;cycles_total += 1; printf(" CLEAR CARRY");}
-void SEC(){setFlag(C); cycles--;cycles_total += 1; printf(" SET CARRY");}
-void CLI(){clearFlag(I); cycles--;cycles_total += 1; printf(" CLEAR INTERRUPT");}
-void SEI(){setFlag(I); cycles--;cycles_total += 1; printf(" SET INTERRUPT");}
-void CLV(){clearFlag(V); cycles--;cycles_total += 1; printf(" CLEAR OVERFLOW");}
+void CLD(){clearFlag(D); cycles_count++; printf(" CLEAR DECIMAL");}
+void SED(){setFlag(D); cycles_count++; printf(" SET DECIMAL (non-functional)");}
+void CLC(){clearFlag(C); cycles_count++; printf(" CLEAR CARRY");}
+void SEC(){setFlag(C); cycles_count++; printf(" SET CARRY");}
+void CLI(){clearFlag(I); cycles_count++; printf(" CLEAR INTERRUPT");}
+void SEI(){setFlag(I); cycles_count++; printf(" SET INTERRUPT");}
+void CLV(){clearFlag(V); cycles_count++; printf(" CLEAR OVERFLOW");}
 
 /* LDx Instructions */
 void LDA(){addressingMode[cc][bbb](); A = operand; setNZ(); printf(" Instruction: LDA");}			// LDA Immediate Addressing
@@ -266,16 +280,16 @@ void STA(){addressingMode[cc][bbb]();mem[address] = A;}		// STA Absolute Address
 void STX(){addressingMode[cc][bbb]();mem[address] = X;}
 void STY(){addressingMode[cc][bbb]();mem[address] = Y;}
 /* Arithmetic Instructions */
-void LSR(){addressingMode[cc][bbb]();
+void LSR(){modify = 1;addressingMode[cc][bbb]();
 	 *target = operand; int carry =operand & 1;operand >>= 1; puts("WRITE BACK");*target = operand; puts("RIGHT SHIFT"); if(carry){setFlag(C);} else {clearFlag(C);}; setNZ();}
-void ASL(){addressingMode[cc][bbb]();
+void ASL(){modify = 1; addressingMode[cc][bbb]();
 	 *target = operand; int carry =(operand >> 7) & 1;operand <<= 1; puts("WRITE BACK");*target = operand; puts("LEFT SHIFT"); if(carry){setFlag(C);} else {clearFlag(C);}; setNZ();}
 
-void DEC(){addressingMode[cc][bbb](); *target = operand; operand--; puts("WRITE BACK");*target = operand; puts("DECREMENT"); setNZ();}
-void INC(){addressingMode[cc][bbb](); *target = operand; operand++; puts("WRITE BACK");*target = operand; puts("INCREMENT"); setNZ();}
+void DEC(){modify = 1; addressingMode[cc][bbb](); *target = operand; operand--; puts("WRITE BACK");*target = operand; puts("DECREMENT"); setNZ();}
+void INC(){modify = 1; addressingMode[cc][bbb](); *target = operand; operand++; puts("WRITE BACK");*target = operand; puts("INCREMENT"); setNZ();}
 
-void ROR(){addressingMode[cc][bbb](); int carry = operand & 1;*target = operand; puts("WRITE BACK");*target = operand >> 1 | ((P >> C)&1) << 7; operand = *target; if(carry){setFlag(C);} else {clearFlag(C);};puts(" ROTATE RIGHT"); setNZ();}
-void ROL(){addressingMode[cc][bbb](); int carry = (operand >> 7) & 1;*target = operand; puts("WRITE BACK");*target = operand << 1 | ((P >> C)&1); operand = *target; if(carry){setFlag(C);} else {clearFlag(C);};puts(" ROTATE LEFT"); setNZ();}
+void ROR(){modify = 1; addressingMode[cc][bbb](); int carry = operand & 1;*target = operand; puts("WRITE BACK");*target = operand >> 1 | ((P >> C)&1) << 7; operand = *target; if(carry){setFlag(C);} else {clearFlag(C);};puts(" ROTATE RIGHT"); setNZ();}
+void ROL(){modify = 1; addressingMode[cc][bbb](); int carry = (operand >> 7) & 1;*target = operand; puts("WRITE BACK");*target = operand << 1 | ((P >> C)&1); operand = *target; if(carry){setFlag(C);} else {clearFlag(C);};puts(" ROTATE LEFT"); setNZ();}
 
 //void ROR(){addressingMode[cc][bbb](); *target = operand; puts("WRITE BACK");*target = operand << 1; operand = *target; setNZ();}   // Purposefully emulate the ROR bug...
 
@@ -360,22 +374,22 @@ void CPY(){
 }
 
 /* Single Byte Instructions */
-void DEX(){ X--; puts("DECREMENT X"); operand = X; setNZ(); cycles -= 1;}
-void DEY(){ Y--; puts("DECREMENT Y"); operand = Y; setNZ(); cycles -= 1;} 
-void INX(){ X++; puts("INCREMENT X"); operand = X; setNZ(); cycles -= 1;}
-void INY(){ Y++; puts("INCREMENT Y"); operand = Y; setNZ(); cycles -= 1;}
+void DEX(){ X--; puts("DECREMENT X"); operand = X; setNZ(); cycles_count++;}
+void DEY(){ Y--; puts("DECREMENT Y"); operand = Y; setNZ(); cycles_count++;} 
+void INX(){ X++; puts("INCREMENT X"); operand = X; setNZ(); cycles_count++;}
+void INY(){ Y++; puts("INCREMENT Y"); operand = Y; setNZ(); cycles_count++;}
 
-void PHP(){ mem[0x100+SP] = P; SP--; cycles -= 2;}
-void PHA(){ mem[0x100+SP] = A; SP--; operand = A;cycles -= 2; printf(" PUSH A TO S");}
+void PHP(){ mem[0x100+SP] = P; SP--; cycles_count += 2;}
+void PHA(){ mem[0x100+SP] = A; SP--; operand = A;cycles_count += 2; printf(" PUSH A TO S");}
 
-void PLP(){ SP++; P= mem[0x100+SP]; cycles -= 2; setFlag(B2); clearFlag(B);}
-void PLA(){ SP++; A=mem[0x100+SP]; operand = A;  setNZ();cycles -= 2; printf(" PULL A FROM S");}
+void PLP(){ SP++; P= mem[0x100+SP]; cycles_count+=2; setFlag(B2); clearFlag(B);}
+void PLA(){ SP++; A=mem[0x100+SP]; operand = A;  setNZ();cycles_count += 2; printf(" PULL A FROM S");}
 
-void NOP(){ cycles--; printf(" NOP");}
+void NOP(){ cycles_count++; printf(" NOP");}
 
-void TXA(){ cycles--; A = X; operand =A; setNZ();}
-void TXS(){ cycles--; SP = X;}
-void TAX(){ cycles--; X = A; operand = X; setNZ();}
-void TSX(){ cycles--; X = SP; operand = X; setNZ();}
-void TYA(){ cycles--; A = Y; operand = A; setNZ();}
-void TAY(){ cycles--; Y = A; operand = Y; setNZ();}
+void TXA(){ cycles_count++; A = X; operand =A; setNZ();}
+void TXS(){ cycles_count++; SP = X;}
+void TAX(){ cycles_count++; X = A; operand = X; setNZ();}
+void TSX(){ cycles_count++; X = SP; operand = X; setNZ();}
+void TYA(){ cycles_count++; A = Y; operand = A; setNZ();}
+void TAY(){ cycles_count++; Y = A; operand = Y; setNZ();}
