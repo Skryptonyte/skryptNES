@@ -1,9 +1,9 @@
 #include "6502.h"
 #include "nes_file_read.h"
+#include "ppu.h"
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
-#include <ppu.h>
 
 void signalHandler(int sigint){
 	puts("\nERROR: SEGFAULT\n");
@@ -13,6 +13,7 @@ void signalHandler(int sigint){
 	printf("DEBUG INFO: Variables - address: %x, opcode: %x, operand: %x, cycles: %d\n\n",address, opcode, operand,cycles_count); 
 	
 	printf("Interrupt Vector: %x %x\n\n", mem[0xFFFE], mem[0xFFFF]);
+	printf("Initialization Vector: %x %x\n\n",mem[0xFFFC],mem[0xFFFD]);
 	puts((char*)mem+0x6004);
 	printf("Status of instr: %x\n", mem[0x6000]);	
 	puts("ZERO PAGE DUMP");
@@ -54,16 +55,24 @@ void (*singleByteA[8])() = {TXA, TXS, TAX, TSX, DEX, NOP, NOP,NOP};
 ppu_init();
 
 while (1){
-while (cycles_count <= 400){
+while (cycles_count <= 40){
 loadOpcode();
 if (argc == 3){
 	if (PC - 1 == strtol(argv[2],NULL, 16)){
 	signalHandler(0);
 }
 }
-printf("OPCODE: %2x, A: %2x, X: %2x, Y: %2x, P: %2x            PC = %4x, SP = %2x CYC: %d| ",opcode, A, X, Y, P,PC - 1, SP,cycles_count);
+
+if (mem[PC+1] == 0x20){
+	printf("PPU START");
+	ppu_emulate();
+}
+
+printf("OPCODE: %2x, A: %2x, X: %2x, Y: %2x, P: %2x            PC = %4x, SP = %2x CYC: %d PPU: %d| ",opcode, A, X, Y, P,PC - 1, SP,cycles_count,ppu_cycles);
 int test = (opcode & 0xF0) >> 4;
 test -= 8;
+
+
 if ((opcode & 0x0F) == 0x0 && singleByte0[(opcode & 0xF0)>> 4]){
         singleByte0[(opcode & 0xF0)>> 4]();
 }
